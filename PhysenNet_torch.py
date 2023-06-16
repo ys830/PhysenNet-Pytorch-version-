@@ -19,11 +19,17 @@ import math
 
 import numpy as np
 import matplotlib.pyplot as plt
-
+import math
 import torch
+import cv2
+import tensorboardX
 
+import torch.nn as nn
+import random
 #------------------------------------------------------------------------------
 # parameters
+
+torch.pi = math.pi
 
 # set device
 
@@ -32,6 +38,9 @@ print(torch.__version__)
 current_dir = os.getcwd()
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+train_writer = tensorboardX.SummaryWriter("./logs/hash_10000/")
+log_iter = 10
+
 # diffraction data
 
 file_name = "diff_1.tif"
@@ -39,6 +48,21 @@ shape = [256, 256]
 diffraction = np.array(plt.imread('diff_1.tif'))
 diffraction = diffraction[280 : 280 + shape[0], 225 : 225 + shape[1]] 
 diffraction = diffraction / np.max(diffraction)
+
+#set seed
+
+# random_seed = 42
+
+# random.seed(random_seed)  
+# np.random.seed(random_seed)  
+# torch.manual_seed(random_seed) 
+
+ 
+# torch.cuda.manual_seed_all(random_seed)
+# np.random.seed(random_seed)
+# random.seed(random_seed)
+# torch.backends.cudnn.deterministic = True
+
 
 #------------------------------------------------------------------------------
 # dataset
@@ -111,9 +135,13 @@ def _fresnel_dfft(
 
 class net_model(torch.nn.Module):
     
-    def __init__(self):
+    def __init__(self,
+                 feature,
+                 hash_mod=True):
         
         super(net_model, self).__init__()
+        self.hash_mod = hash_mod
+        self.feature = nn.parameter.Parameter(feature ,requires_grad = True)
         
         self.layer_01 = torch.nn.Sequential(
             torch.nn.ConvTranspose2d(
@@ -293,39 +321,74 @@ class net_model(torch.nn.Module):
             )
         
     def forward(self, x):
-        
-        #-------------------------------------------------------
-        x6_0 = self.layer_06_01(self.layer_part1(x))
-        x6_1 = self.layer_04(
-            self.layer_03_maxpool(self.layer_03(self.layer_02_maxpool(
+
+        if self.hash_mod:
+            #-------------------------------------------------------
+            x6_0 = self.layer_06_01(self.layer_part1(self.feature))
+            x6_1 = self.layer_04(
+                self.layer_03_maxpool(self.layer_03(self.layer_02_maxpool(
+                    self.layer_02(self.layer_01_maxpool(self.layer_01(self.feature)))
+                    )))
+                )
+            x6_2 = torch.cat((x6_0, x6_1), 1)
+            x6 = self.layer_06_03(self.layer_06_02(x6_2))
+            
+            #-------------------------------------------------------
+            x7_0 = self.layer_07_01(x6)
+            x7_1 = self.layer_03(self.layer_02_maxpool(
+                self.layer_02(self.layer_01_maxpool(self.layer_01(self.feature)))
+                ))
+            x7_2 = torch.cat((x7_0, x7_1), 1)
+            x7 = self.layer_07_03(self.layer_07_02(x7_2))
+            
+            #-------------------------------------------------------
+            x8_0 = self.layer_08_01(x7)
+            x8_1 = self.layer_02(self.layer_01_maxpool(self.layer_01(self.feature)))
+            x8_2 = torch.cat((x8_0, x8_1), 1)
+            x8 = self.layer_08_03(self.layer_08_02(x8_2))
+            
+            #-------------------------------------------------------
+            x9_0 = self.layer_09_01(x8)
+            x9_1 = self.layer_01(self.feature)
+            x9_2 = torch.cat((x9_0, x9_1), 1)
+            x9 = self.layer_09_03(self.layer_09_02(x9_2))
+            
+            #-------------------------------------------------------
+            x10 = self.layer_10(x9)
+        else:
+            #-------------------------------------------------------
+            x6_0 = self.layer_06_01(self.layer_part1(x))
+            x6_1 = self.layer_04(
+                self.layer_03_maxpool(self.layer_03(self.layer_02_maxpool(
+                    self.layer_02(self.layer_01_maxpool(self.layer_01(x)))
+                    )))
+                )
+            x6_2 = torch.cat((x6_0, x6_1), 1)
+            x6 = self.layer_06_03(self.layer_06_02(x6_2))
+            
+            #-------------------------------------------------------
+            x7_0 = self.layer_07_01(x6)
+            x7_1 = self.layer_03(self.layer_02_maxpool(
                 self.layer_02(self.layer_01_maxpool(self.layer_01(x)))
-                )))
-            )
-        x6_2 = torch.cat((x6_0, x6_1), 1)
-        x6 = self.layer_06_03(self.layer_06_02(x6_2))
-        
-        #-------------------------------------------------------
-        x7_0 = self.layer_07_01(x6)
-        x7_1 = self.layer_03(self.layer_02_maxpool(
-            self.layer_02(self.layer_01_maxpool(self.layer_01(x)))
-            ))
-        x7_2 = torch.cat((x7_0, x7_1), 1)
-        x7 = self.layer_07_03(self.layer_07_02(x7_2))
-        
-        #-------------------------------------------------------
-        x8_0 = self.layer_08_01(x7)
-        x8_1 = self.layer_02(self.layer_01_maxpool(self.layer_01(x)))
-        x8_2 = torch.cat((x8_0, x8_1), 1)
-        x8 = self.layer_08_03(self.layer_08_02(x8_2))
-        
-        #-------------------------------------------------------
-        x9_0 = self.layer_09_01(x8)
-        x9_1 = self.layer_01(x)
-        x9_2 = torch.cat((x9_0, x9_1), 1)
-        x9 = self.layer_09_03(self.layer_09_02(x9_2))
-        
-        #-------------------------------------------------------
-        x10 = self.layer_10(x9)
+                ))
+            x7_2 = torch.cat((x7_0, x7_1), 1)
+            x7 = self.layer_07_03(self.layer_07_02(x7_2))
+            
+            #-------------------------------------------------------
+            x8_0 = self.layer_08_01(x7)
+            x8_1 = self.layer_02(self.layer_01_maxpool(self.layer_01(x)))
+            x8_2 = torch.cat((x8_0, x8_1), 1)
+            x8 = self.layer_08_03(self.layer_08_02(x8_2))
+            
+            #-------------------------------------------------------
+            x9_0 = self.layer_09_01(x8)
+            x9_1 = self.layer_01(x)
+            x9_2 = torch.cat((x9_0, x9_1), 1)
+            x9 = self.layer_09_03(self.layer_09_02(x9_2))
+            
+            #-------------------------------------------------------
+            x10 = self.layer_10(x9)
+
         
         return x10
         
@@ -337,15 +400,19 @@ if __name__ == "__main__":
     #---------------------------------------------------------
     # dataset
     
-    data = sample_dataset(diffraction, "training", 2000, 1, noise_level = 0.03)
+    data = sample_dataset(diffraction, "training", 10000, 1, noise_level = 0.03)
     train_data = torch.utils.data.DataLoader(
-        data, batch_size = 2000, shuffle = True
+        data, batch_size = 10000, shuffle = True
         )
-    
+    init_train_data = torch.utils.data.DataLoader(
+        data, batch_size = 1, shuffle = False
+        )
+    for init_train_iter in init_train_data:
+        init_feature = init_train_iter.squeeze(0)
     #---------------------------------------------------------
     # net 
     
-    net = net_model().to(device)
+    net = net_model(feature= init_feature).to(device)
     
     #---------------------------------------------------------
     # loss function
@@ -360,6 +427,7 @@ if __name__ == "__main__":
     lr, num_epochs = 0.01, 1
     optimizer = torch.optim.Adam(net.parameters(), lr = lr)
     index = 0
+    iteration = 0
     
     for train_iter in train_data:
         
@@ -379,25 +447,51 @@ if __name__ == "__main__":
             #-------------------------------------------------
                 
             loss_value = loss_fn(measured_y.float(), target.float())
-            print(loss_value)
+            # print(loss_value)
             
             optimizer.zero_grad()
             loss_value.backward()
             optimizer.step()
-    
+            
+            #-------------------------------------------------
+
+            iteration = iteration+1
+            if (iteration) % log_iter == 0: 
+                train_psnr = -10 * torch.log10(2 * loss_value).item()
+                train_loss = loss_value.item()
+
+                train_writer.add_scalar('train_loss', train_loss, iteration)
+                train_writer.add_scalar('train_psnr', train_psnr, iteration)
+                estimated = torch.abs(measured_y)
+                gt = torch.from_numpy(diffraction)
+                pred = pred_y[0, 0, :, :]
+                train_writer.add_image('estimated_diff', estimated, iteration, dataformats='HW')
+                train_writer.add_image('gt', gt, iteration, dataformats='HW')
+                train_writer.add_image('estimated_phase', pred, iteration, dataformats='HW')
+                # estimated_phase = pred_y.to("cpu").detach().numpy()[0, 0, :, :]
+                # plt.imsave('./test'+str(iteration)+'.png', estimated_phase, cmap='gray')
+
+                print("[Iteration: {}/{}] Train loss: {:.4g} | Train psnr: {:.4g}".format(iteration, 10000, train_loss, train_psnr))
+
+
     #---------------------------------------------------------
     # visualization
     
     fig, axes = plt.subplots(1, 3, figsize = (12, 4))
     axes[0].imshow(diffraction)
     axes[0].set_title("raw_diff")
-    
+    plt.imsave('./raw_diff.png', diffraction, cmap='gray')
+
     estimated_diff = np.abs(measured_y.to("cpu").detach().numpy())
     axes[1].imshow(estimated_diff)
     axes[1].set_title("estimated_diff")
-    
+    plt.imsave('./estimated_diff_hash_10000.png', estimated_diff, cmap='gray')
+
+
     estimated_phase = pred_y.to("cpu").detach().numpy()[0, 0, :, :]
     axes[2].imshow(estimated_phase)
     axes[2].set_title("estimated_phase")
+    plt.imsave('./rstimated_phase_hash_10000.png', estimated_phase, cmap='gray')
+
     
     fig.tight_layout()
